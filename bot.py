@@ -927,7 +927,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "📋 My Plan":
         await show_my_plan(update, context)
         return
-    elif text == "🚪 Logout":
+    elif text == "":
         await logout(update, context)
         return
 
