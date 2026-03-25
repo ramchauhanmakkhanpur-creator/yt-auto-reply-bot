@@ -71,7 +71,6 @@ TEXTS = {
         'payment_waiting': "⏳ Payment screenshot received. Waiting for admin approval.",
         'payment_approved': "✅ *Plan {} activated!*\nDaily replies: {}\nValid until: {}",
         'payment_rejected': "❌ Payment verification failed. Please contact admin.",
-        'logout_success': "👋 Logged out. All your data has been removed.\nUse /start to begin again.",
         'unknown': "Please use the buttons below.\nIf you need help, press /start.",
         'start_reply': "✅ **Reply Started!** Now auto-reply will work on new comments only.",
         'stop_reply': "🛑 **Auto Reply stopped!**",
@@ -94,6 +93,7 @@ TEXTS = {
         'projects_list': "📁 *Available Google Projects:*\n{}",
         'choose_project': "🔑 Please select the Google project you want to use for YouTube login:",
         'project_selected': "✅ You selected: {}\nNow click the link below to log in with YouTube.",
+        'guide_message': "✅ *Reply sent!* \n\n📌 *What you can do now:*\n• Add more videos with ➕ Add Video\n• Check your remaining replies with 💰 Reply Credits\n• Upgrade your plan with 💳 Subscription\n• See your current plan with 📋 My Plan\n• Stop auto-reply with 🛑 Stop Reply\n\nThank you for using the bot!",
     },
     'hi': {
         'welcome': "✅ *स्वागत है!* कृपया अपनी भाषा चुनें:",
@@ -118,7 +118,6 @@ TEXTS = {
         'payment_waiting': "⏳ भुगतान का स्क्रीनशॉट मिल गया। एडमिन से अनुमति की प्रतीक्षा है।",
         'payment_approved': "✅ *प्लान {} सक्रिय कर दिया गया!*\nदैनिक जवाब: {}\nवैधता: {} तक",
         'payment_rejected': "❌ भुगतान सत्यापन विफल। कृपया एडमिन से संपर्क करें।",
-        'logout_success': "👋 लॉगआउट हो गया। आपका सारा डेटा हटा दिया गया है।\nफिर से शुरू करने के लिए /start दबाएँ।",
         'unknown': "कृपया नीचे दिए गए बटन का उपयोग करें।\nसहायता के लिए /start दबाएँ।",
         'start_reply': "✅ **जवाब शुरू हो गया!** अब ऑटो रिप्लाई केवल नए कमेंट्स पर काम करेगा।",
         'stop_reply': "🛑 **ऑटो रिप्लाई बंद हो गया!**",
@@ -141,6 +140,7 @@ TEXTS = {
         'projects_list': "📁 *उपलब्ध Google प्रोजेक्ट:*\n{}",
         'choose_project': "🔑 कृपया वह Google प्रोजेक्ट चुनें जिसका उपयोग YouTube लॉगिन के लिए करना चाहते हैं:",
         'project_selected': "✅ आपने चुना: {}\nअब YouTube से लॉगिन करने के लिए नीचे दिए लिंक पर क्लिक करें।",
+        'guide_message': "✅ *जवाब भेज दिया गया!* \n\n📌 *अब आप क्या कर सकते हैं:*\n• और वीडियो जोड़ने के लिए ➕ Add Video\n• बचे हुए रिप्लाई देखने के लिए 💰 Reply Credits\n• प्लान अपग्रेड करने के लिए 💳 Subscription\n• अपना वर्तमान प्लान देखने के लिए 📋 My Plan\n• ऑटो-रिप्लाई बंद करने के लिए 🛑 Stop Reply\n\nबॉट का उपयोग करने के लिए धन्यवाद!",
     }
 }
 
@@ -286,6 +286,18 @@ def check_and_alert_zero_credits(uid):
         if main_loop is not None:
             asyncio.run_coroutine_threadsafe(send_zero_credit_alert(uid), main_loop)
 
+# ====================== GUIDE MESSAGE ======================
+async def send_guide_message(uid):
+    """Send a guide message to the user after a successful reply."""
+    lang = get_user_lang(uid)
+    text = TEXTS[lang].get('guide_message', TEXTS['en']['guide_message'])
+    await bot_app.bot.send_message(chat_id=int(uid), text=text, reply_markup=menu_keyboard)
+
+def schedule_guide_message(uid):
+    """Called from loop thread to schedule guide message."""
+    if main_loop is not None:
+        asyncio.run_coroutine_threadsafe(send_guide_message(uid), main_loop)
+
 # ====================== AUTO-REPLY LOOP ======================
 def youtube_comment_loop():
     global bot_running
@@ -355,6 +367,8 @@ def youtube_comment_loop():
                                     seen_comments[uid][video_id].add(comment_id)
                                     save_data()
                                     print(f"✅ Reply sent (Project {idx+1}: {project_file}) → {reply_text[:50]}")
+                                    # Send guide message after successful reply
+                                    schedule_guide_message(uid)
                                 delay = random.randint(30, 60)
                                 time.sleep(delay)
                             except Exception as e:
@@ -838,21 +852,6 @@ async def show_my_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = get_text(uid, 'my_plan', plan_name, plan['daily_limit'], expiry_date)
     await update.message.reply_text(text, reply_markup=menu_keyboard)
 
-async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = str(update.effective_user.id)
-    if uid in user_configs:
-        del user_configs[uid]
-    if uid in seen_comments:
-        del seen_comments[uid]
-    if uid in running_users:
-        running_users[uid] = False
-    if uid in user_states:
-        del user_states[uid]
-    if uid in user_temp:
-        del user_temp[uid]
-    save_data()
-    await update.message.reply_text(get_text(uid, 'logout_success'), reply_markup=menu_keyboard)
-
 # ====================== MAIN MESSAGE HANDLER ======================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(update.effective_user.id)
@@ -927,9 +926,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "📋 My Plan":
         await show_my_plan(update, context)
         return
-    elif text == "":
-        await logout(update, context)
-        return
 
     # State flows
     if state == 'waiting_youtube_code':
@@ -963,8 +959,7 @@ menu_keyboard = ReplyKeyboardMarkup([
     ["➕ Add Video", "🗑️ Delete Video"],
     ["📋 Total Videos", "📊 Total Send Reply"],
     ["💰 Reply Credits", "💳 Subscription"],
-    ["📋 My Plan", "🚪 Logout"],
-    ["🔑 Login with YouTube"]
+    ["📋 My Plan", "🔑 Login with YouTube"]
 ], resize_keyboard=True)
 
 if __name__ == '__main__':
@@ -986,5 +981,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(project_selection_callback, pattern="^proj_"))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
-    print("✅ Bot Started with Project Selection, Random Delay (30-60s), Only New Comments, and Zero-Credit Alert!")
+    print("✅ Bot Started with Project Selection, Random Delay (30-60s), Only New Comments, Zero-Credit Alert, and Guide Message!")
     app.run_polling()
